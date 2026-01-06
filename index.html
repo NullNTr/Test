@@ -7,82 +7,39 @@
 
 <style>
 body{
-  margin:0;
-  min-height:100vh;
-  background:#000;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  font-family:system-ui,sans-serif;
-  color:#fee2e2;
+  margin:0; min-height:100vh; background:#000;
+  display:flex; justify-content:center; align-items:center;
+  font-family:system-ui,sans-serif; color:#fee2e2;
 }
 .container{
-  width:94%;
-  max-width:540px;
-  padding:24px;
+  width:94%; max-width:560px; padding:24px;
   background:linear-gradient(145deg,#1a0000,#000);
-  border-radius:18px;
-  border:1px solid #7f1d1d;
-  box-shadow:0 0 40px rgba(239,68,68,.35);
+  border-radius:18px; border:1px solid #7f1d1d;
 }
-h1{
-  text-align:center;
-  margin-bottom:18px;
-  font-size:26px;
-  background:linear-gradient(90deg,#fecaca,#ef4444,#7f1d1d);
-  -webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;
-}
+h1{text-align:center;margin-bottom:18px;font-size:26px}
 input,textarea{
-  width:100%;
-  box-sizing:border-box;
-  margin-top:10px;
-  padding:13px;
-  border-radius:12px;
-  background:#000;
-  color:#fee2e2;
-  border:1px solid #7f1d1d;
-  outline:none;
-  font-size:14px;
+  width:100%; margin-top:10px; padding:13px;
+  border-radius:12px; background:#000; color:#fee2e2;
+  border:1px solid #7f1d1d; font-size:14px;
 }
-textarea{resize:none}
 .tokens{height:120px}
 .msg{height:130px}
-.row{
-  display:flex;
-  gap:10px;
-}
+.row{display:flex; gap:10px}
 .row input{flex:1}
 button{
-  width:100%;
-  margin-top:14px;
-  padding:15px;
-  font-size:16px;
-  font-weight:bold;
-  border-radius:14px;
-  border:none;
-  cursor:pointer;
-  color:white;
+  width:100%; margin-top:12px; padding:14px;
+  font-size:15px; font-weight:bold; border-radius:14px;
+  border:none; cursor:pointer; color:#fff;
 }
-.send{
-  background:linear-gradient(135deg,#dc2626,#ef4444,#7f1d1d);
-}
-.stop{
-  background:linear-gradient(135deg,#374151,#111827);
-}
-.status{
-  margin-top:12px;
-  text-align:center;
-  font-size:13px;
-  color:#fca5a5;
-}
+.send{background:#dc2626}
+.pause{background:#92400e}
+.stop{background:#374151}
+.status{margin-top:10px; text-align:center; font-size:13px}
 .log{
-  margin-top:10px;
-  font-size:12px;
-  max-height:100px;
-  overflow:auto;
-  color:#fecaca;
+  margin-top:10px; font-size:12px;
+  max-height:110px; overflow:auto;
 }
+.small{font-size:11px; opacity:.8}
 </style>
 </head>
 
@@ -90,79 +47,102 @@ button{
 <div class="container">
   <h1>Webhook</h1>
 
-  <!-- 🔽 ここが変更点 -->
-  <textarea id="urls" class="tokens" placeholder="Webhookトークンを改行で最大50個まで貼り付け"></textarea>
+  <textarea id="urls" class="tokens"
+    placeholder="Webhook URLを改行で最大50個まで"></textarea>
 
   <input id="name" placeholder="Webhook名">
 
-  <textarea id="msg" class="msg" maxlength="500" placeholder="送信メッセージ（最大500文字）"></textarea>
+  <textarea id="msg" class="msg" maxlength="500"
+    placeholder="送信メッセージ（最大500文字）"></textarea>
 
   <div class="row">
-    <input id="interval" type="number" value="1000" min="500" placeholder="間隔(ms)">
-    <input id="limit" type="number" placeholder="回数（空＝無限）">
+    <input id="interval" type="number" value="1000" min="100"
+      placeholder="間隔(ms)">
+    <input id="limit" type="number"
+      placeholder="回数（空＝無限）">
   </div>
 
   <button class="send" onclick="start()">実行</button>
+  <button class="pause" onclick="togglePause()">一時停止 / 再開</button>
   <button class="stop" onclick="stop()">停止</button>
 
   <div class="status" id="status">待機中</div>
-  <div class="status">総送信回数: <span id="count">0</span></div>
+  <div class="status small">
+    総送信: <span id="count">0</span> /
+    現在URL: <span id="current">-</span>
+  </div>
   <div class="log" id="log"></div>
 </div>
 
 <script>
-let timers=[];
-let running=false;
-let count=0;
+let timer=null, running=false, paused=false;
+let urls=[], index=0, count=0;
+let stats=new Map(); // url -> success count
+let backoffUntil=0;
+
+const els={
+  urls:urlsEl=document.getElementById("urls"),
+  msg:msgEl=document.getElementById("msg"),
+  name:nameEl=document.getElementById("name"),
+  interval:intervalEl=document.getElementById("interval"),
+  limit:limitEl=document.getElementById("limit"),
+  status:statusEl=document.getElementById("status"),
+  count:countEl=document.getElementById("count"),
+  current:document.getElementById("current"),
+  log:document.getElementById("log")
+};
 
 function log(t){
-  const l=document.getElementById("log");
-  l.innerHTML+=t+"<br>";
-  l.scrollTop=l.scrollHeight;
+  els.log.innerHTML+=t+"<br>";
+  if(els.log.children.length>200){
+    els.log.innerHTML=els.log.innerHTML.split("<br>").slice(-150).join("<br>");
+  }
+  els.log.scrollTop=els.log.scrollHeight;
 }
+
+function save(){
+  localStorage.setItem("wh_cfg",JSON.stringify({
+    urls:els.urls.value, msg:els.msg.value,
+    name:els.name.value, interval:els.interval.value,
+    limit:els.limit.value
+  }));
+}
+function load(){
+  const d=JSON.parse(localStorage.getItem("wh_cfg")||"null");
+  if(!d) return;
+  Object.keys(d).forEach(k=>els[k].value=d[k]||"");
+}
+load();
 
 function start(){
   if(running) return;
 
-  const urls = document.getElementById("urls").value
-    .split("\n")
-    .map(v=>v.trim())
-    .filter(v=>v);
+  urls=els.urls.value.split("\n").map(v=>v.trim()).filter(Boolean);
+  if(urls.length===0) return statusEl.textContent="Webhookなし";
+  if(urls.length>50) return statusEl.textContent="最大50個";
+  if(!els.msg.value.trim()) return statusEl.textContent="メッセージ空";
 
-  const msg = msgEl.value.trim();
-  const interval = parseInt(intervalEl.value)||1000;
-  const limit = parseInt(limitEl.value)||Infinity;
-
-  if(urls.length === 0){
-    statusEl.textContent="トークンがありません";
-    return;
-  }
-  if(urls.length > 50){
-    statusEl.textContent="トークンは最大50個まで";
-    return;
-  }
-  if(!msg){
-    statusEl.textContent="メッセージが空です";
-    return;
-  }
-
-  running=true;
-  count=0;
+  save();
+  running=true; paused=false; count=0; index=0;
+  stats.clear(); backoffUntil=0;
   countEl.textContent="0";
-  statusEl.textContent="送信中… 停止で全停止";
-  log(`▶ 送信開始 (${urls.length} トークン)`);
+  statusEl.textContent="送信中";
+  log(`▶ 開始 (${urls.length})`);
 
-  urls.forEach(url=>{
-    send(url);
-    const t=setInterval(()=>{
-      if(count>=limit){
-        stop();
-        return;
-      }
-      send(url);
-    },interval);
-    timers.push(t);
-  });
+  timer=setInterval(tick, parseInt(els.interval.value)||1000);
+}
+
+function tick(){
+  if(!running || paused) return;
+  if(Date.now()<backoffUntil) return;
+
+  const limit=parseInt(els.limit.value)||Infinity;
+  if(count>=limit){ stop(); return; }
+
+  const url=urls[index];
+  els.current.textContent=index+1;
+  send(url);
+  index=(index+1)%urls.length;
 }
 
 function send(url){
@@ -170,32 +150,34 @@ function send(url){
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
-      content:msgEl.value,
-      username:nameEl.value||"Webhook"
+      content:els.msg.value,
+      username:els.name.value||"Webhook"
     })
-  }).then(()=>{
-    count++;
-    countEl.textContent=count;
-    log("✔ 送信成功");
-  }).catch(()=>{
-    log("✖ 送信失敗");
-  });
+  }).then(r=>{
+    if(r.status===429){
+      backoffUntil=Date.now()+3000;
+      log("⚠ レート制限 3秒待機");
+      return;
+    }
+    count++; countEl.textContent=count;
+    stats.set(url,(stats.get(url)||0)+1);
+    log(`✔ 成功 (${stats.get(url)})`);
+  }).catch(()=>log("✖ 失敗"));
+}
+
+function togglePause(){
+  if(!running) return;
+  paused=!paused;
+  statusEl.textContent=paused?"一時停止中":"送信中";
+  log(paused?"⏸ 停止":"▶ 再開");
 }
 
 function stop(){
-  timers.forEach(t=>clearInterval(t));
-  timers=[];
-  running=false;
-  statusEl.textContent="停止しました";
+  clearInterval(timer); timer=null;
+  running=false; paused=false;
+  statusEl.textContent="停止";
   log("■ 停止");
 }
-
-const msgEl=document.getElementById("msg");
-const nameEl=document.getElementById("name");
-const intervalEl=document.getElementById("interval");
-const limitEl=document.getElementById("limit");
-const statusEl=document.getElementById("status");
-const countEl=document.getElementById("count");
 </script>
 </body>
 </html>
