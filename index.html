@@ -47,8 +47,12 @@ button{
 <div class="container">
   <h1>Webhook</h1>
 
+  <!-- Webhook URL -->
   <textarea id="urls" class="tokens"
     placeholder="Webhook URLを改行で最大50個まで"></textarea>
+
+  <!-- 🆕 サーバーID -->
+  <input id="serverId" placeholder="サーバーID（管理用）">
 
   <input id="name" placeholder="Webhook名">
 
@@ -77,17 +81,18 @@ button{
 <script>
 let timer=null, running=false, paused=false;
 let urls=[], index=0, count=0;
-let stats=new Map(); // url -> success count
+let stats=new Map();
 let backoffUntil=0;
 
 const els={
-  urls:urlsEl=document.getElementById("urls"),
-  msg:msgEl=document.getElementById("msg"),
-  name:nameEl=document.getElementById("name"),
-  interval:intervalEl=document.getElementById("interval"),
-  limit:limitEl=document.getElementById("limit"),
-  status:statusEl=document.getElementById("status"),
-  count:countEl=document.getElementById("count"),
+  urls:document.getElementById("urls"),
+  server:document.getElementById("serverId"),
+  msg:document.getElementById("msg"),
+  name:document.getElementById("name"),
+  interval:document.getElementById("interval"),
+  limit:document.getElementById("limit"),
+  status:document.getElementById("status"),
+  count:document.getElementById("count"),
   current:document.getElementById("current"),
   log:document.getElementById("log")
 };
@@ -102,15 +107,21 @@ function log(t){
 
 function save(){
   localStorage.setItem("wh_cfg",JSON.stringify({
-    urls:els.urls.value, msg:els.msg.value,
-    name:els.name.value, interval:els.interval.value,
+    urls:els.urls.value,
+    server:els.server.value,
+    msg:els.msg.value,
+    name:els.name.value,
+    interval:els.interval.value,
     limit:els.limit.value
   }));
 }
+
 function load(){
   const d=JSON.parse(localStorage.getItem("wh_cfg")||"null");
   if(!d) return;
-  Object.keys(d).forEach(k=>els[k].value=d[k]||"");
+  Object.keys(d).forEach(k=>{
+    if(els[k]) els[k].value=d[k]||"";
+  });
 }
 load();
 
@@ -118,16 +129,16 @@ function start(){
   if(running) return;
 
   urls=els.urls.value.split("\n").map(v=>v.trim()).filter(Boolean);
-  if(urls.length===0) return statusEl.textContent="Webhookなし";
-  if(urls.length>50) return statusEl.textContent="最大50個";
-  if(!els.msg.value.trim()) return statusEl.textContent="メッセージ空";
+  if(urls.length===0) return els.status.textContent="Webhookなし";
+  if(urls.length>50) return els.status.textContent="最大50個";
+  if(!els.msg.value.trim()) return els.status.textContent="メッセージ空";
 
   save();
   running=true; paused=false; count=0; index=0;
   stats.clear(); backoffUntil=0;
-  countEl.textContent="0";
-  statusEl.textContent="送信中";
-  log(`▶ 開始 (${urls.length})`);
+  els.count.textContent="0";
+  els.status.textContent="送信中";
+  log(`▶ 開始 | ServerID: ${els.server.value || "未入力"}`);
 
   timer=setInterval(tick, parseInt(els.interval.value)||1000);
 }
@@ -156,26 +167,26 @@ function send(url){
   }).then(r=>{
     if(r.status===429){
       backoffUntil=Date.now()+3000;
-      log("⚠ レート制限 3秒待機");
+      log("⚠ レート制限 → 3秒待機");
       return;
     }
-    count++; countEl.textContent=count;
+    count++; els.count.textContent=count;
     stats.set(url,(stats.get(url)||0)+1);
-    log(`✔ 成功 (${stats.get(url)})`);
-  }).catch(()=>log("✖ 失敗"));
+    log("✔ 送信成功");
+  }).catch(()=>log("✖ 送信失敗"));
 }
 
 function togglePause(){
   if(!running) return;
   paused=!paused;
-  statusEl.textContent=paused?"一時停止中":"送信中";
-  log(paused?"⏸ 停止":"▶ 再開");
+  els.status.textContent=paused?"一時停止中":"送信中";
+  log(paused?"⏸ 一時停止":"▶ 再開");
 }
 
 function stop(){
   clearInterval(timer); timer=null;
   running=false; paused=false;
-  statusEl.textContent="停止";
+  els.status.textContent="停止";
   log("■ 停止");
 }
 </script>
